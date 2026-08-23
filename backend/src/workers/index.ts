@@ -36,7 +36,8 @@ async function startWorkers() {
 }
 
 startWorkers().catch((err) => {
-  logger.error('Failed to start workers', { error: err });
+  console.error('Error starting workers:', err);
+  logger.error('Failed to start workers', { error: err.message, stack: err.stack });
   process.exit(1);
 });
 
