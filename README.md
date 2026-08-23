@@ -1,132 +1,261 @@
 # Healthcare Appointment & Follow-up Manager
 
-A full-stack, production-grade healthcare application featuring safe concurrent appointment booking, slot-hold reservations, dual-stage LLM clinical summarization with doctor approval gates, medication reminder schedules, Google Calendar synchronization, BullMQ background queues, and role-based portals for Patients, Doctors, and Administrators.
+> 🌐 **Live Hosted Application**: [https://healthcare-appointment-manager-lac.vercel.app](https://healthcare-appointment-manager-lac.vercel.app)
+
+A full-stack, production-grade clinical scheduling and follow-up management platform. It guarantees concurrency safety via database-level unique constraints and 5-minute atomic slot holds, implements dual-stage AI clinical workflows with human-in-the-loop doctor approval gates, and manages notifications, medication reminders, and Google Calendar sync via decoupled BullMQ background worker queues.
+
 
 ---
 
-## 🌟 Key Architecture & Engineering Decisions
-
-1. **Database-Level Double-Booking Prevention**:
-   - Two-layer protection: An application-level Prisma interactive transaction combined with a PostgreSQL partial unique index (`unique_active_appointment`) over `(doctorId, appointmentDate, startTime)` where `status IN ('BOOKED', 'CONFIRMED', 'HOLD')`.
-   - Guarantees zero double bookings even under heavy concurrent requests.
-
-2. **5-Minute Server-Side Slot-Hold Mechanism**:
-   - When a patient selects an available time slot in the booking wizard, a temporary record is created in `SlotHold` with `isActive = true` and `expiresAt = now() + 5 minutes`.
-   - `SlotHold` utilizes a unique constraint `@@unique([doctorId, holdDate, startTime, isActive])` to ensure only one active hold exists per slot.
-   - Background BullMQ worker automatically cleans expired holds every 60 seconds.
-
-3. **Dual-Stage LLM Clinical Summaries**:
-   - **Pre-Visit Triage**: Analyzes patient-submitted symptoms to extract chief complaints, compute triage urgency scores (`LOW`, `MEDIUM`, `HIGH`), and suggest targeted diagnostic questions for the physician.
-   - **Post-Visit Patient Care Plan**: Translates complex medical notes into readable patient instructions, medication routines, and warning signs.
-   - **Doctor Approval Gate**: AI-generated summaries remain draft until explicitly reviewed and approved by the doctor (`summaryApprovedByDoctor = true`).
-   - **Fault Tolerance**: All LLM calls are wrapped in robust fallbacks; if OpenAI is unconfigured or rate-limited, appointments still succeed gracefully and fallback views are rendered.
-
-4. **Reliable Background Queues & Non-Blocking Architecture**:
-   - External dependencies (Nodemailer email notifications, Google Calendar OAuth sync, Medication reminder jobs) are decoupled into BullMQ queues with exponential backoff retries.
-   - Failures in third-party services (e.g. invalid calendar tokens or SMTP timeouts) never cause appointment booking transactions to roll back.
+## 🌟 Table of Contents
+- [Architecture & Key Features](#-architecture--key-features)
+- [Quick Start & Setup Guide](#-quick-start--setup-guide)
+- [Environment Variables (.env.example)](#-environment-variables-envexample)
+- [Database Schema (Prisma)](#-database-schema-prisma)
+- [API Documentation](#-api-documentation)
+- [LLM Prompts & Clinical Guidance](#-llm-prompts--clinical-guidance)
+- [Google Calendar Setup Guide](#-google-calendar-setup-guide)
+- [Demo Credentials](#-demo-credentials)
+- [Deployment Guide](#-deployment-guide)
 
 ---
 
-## 🚀 Quick Start Guide
+## 🌟 Architecture & Key Features
+
+1. **Double-Booking Prevention**:
+   - PostgreSQL Partial Unique Index: `CREATE UNIQUE INDEX unique_active_appointment ON "Appointment"("doctorId", "appointmentDate", "startTime") WHERE status IN ('BOOKED', 'CONFIRMED', 'HOLD');`
+   - ACID Prisma Transaction inside `appointmentService.bookAppointment` verifying hold ownership before committing.
+
+2. **5-Minute Server-Side Slot-Hold Engine**:
+   - Temporary reservation in `SlotHold` with `@@unique([doctorId, holdDate, startTime, isActive])`.
+   - BullMQ cron worker automatically releases expired holds every 60 seconds.
+
+3. **Dual-Stage Clinical LLM Workflows**:
+   - **Pre-Visit Triage**: Analyzes patient symptoms into `urgencyLevel` (`LOW`/`MEDIUM`/`HIGH`), chief complaint, and suggested diagnostic questions.
+   - **Post-Visit Patient Care Plan**: Translates clinical notes into layperson recovery instructions, dosing routines, and warning signs.
+   - **Doctor Approval Gate**: Post-visit summaries remain draft until explicitly approved by the attending doctor (`summaryApprovedByDoctor = true`).
+
+4. **Decoupled Asynchronous Workers**:
+   - BullMQ queues handle Nodemailer emails, medication reminders, and Google Calendar sync with exponential retry backoff.
+   - Third-party failures never block or roll back appointment transactions.
+
+5. **Doctor Leave Conflict Resolution**:
+   - When a doctor marks leave, conflicting appointments automatically transition to `DOCTOR_LEAVE` and trigger patient email alerts.
+
+---
+
+## 🚀 Quick Start & Setup Guide
 
 ### Prerequisites
 - **Node.js** v18+ (tested on Node.js v24)
-- **PostgreSQL** 14+ running on port `5432`
-- **Redis** running on port `6379`
+- **PostgreSQL** 14+ on `localhost:5432`
+- **Redis** on `localhost:6379`
 
----
-
-### 1. Database Setup & Seeding
-
+### Step 1: Database Setup & Seeding
 ```bash
-# In backend directory
+# Navigate to backend
 cd backend
 
-# Copy environment variables
+# Copy environment template
 cp .env.example .env
 
-# Run Prisma migrations
+# Run Prisma database migrations
 npx prisma migrate dev --name init
 
-# Seed database with sample doctors, working hours, patients, and past visits
+# Seed database with sample doctors, working shifts, and patients
 npm run seed
 ```
 
----
-
-### 2. Running Backend API Server & Background Workers
-
+### Step 2: Run Backend & Background Workers
 ```bash
-# Terminal 1: Start Express API Server (Port 5000)
+# Terminal 1: Start Backend API (Port 5000)
 cd backend
 npm run dev
 
-# Terminal 2: Start BullMQ Background Workers
+# Terminal 2: Start Background Workers
 cd backend
 npm run dev:worker
 ```
 
----
-
-### 3. Running Frontend Web App
-
+### Step 3: Run Frontend Client
 ```bash
-# Terminal 3: Start Vite React Frontend (Port 5173)
+# Terminal 3: Start Vite React Frontend (Port 5173 / 5174)
 cd frontend
 npm run dev
 ```
-
-Visit **http://localhost:5173** to access the application.
+Open **`http://localhost:5173`** (or `http://localhost:5174`) in your browser.
 
 ---
 
-## 🔑 Pre-Seeded Demo Credentials
+## ⚙️ Environment Variables (`.env.example`)
 
-| Role | Email | Password | Details |
+File: `backend/.env.example`
+```env
+# ─── Database ───────────────────────────────────────────────────────────────
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/healthcare_app"
+
+# ─── JWT & Auth ─────────────────────────────────────────────────────────────
+JWT_SECRET="healthcare-jwt-secret-change-in-production-2024"
+JWT_EXPIRES_IN="7d"
+
+# ─── Server & CORS ──────────────────────────────────────────────────────────
+PORT=5000
+NODE_ENV=development
+CORSORIGIN="http://localhost:5173,http://localhost:5174"
+
+# ─── Redis & Queues ─────────────────────────────────────────────────────────
+REDIS_URL="redis://localhost:6379"
+
+# ─── Email (Nodemailer / SMTP) ──────────────────────────────────────────────
+EMAIL_HOST="smtp.ethereal.email"
+EMAIL_PORT=587
+EMAIL_USER="dev@ethereal.email"
+EMAIL_PASS="devpassword"
+EMAIL_FROM="HealthCare App <noreply@healthcare.dev>"
+
+# ─── LLM (OpenAI) ───────────────────────────────────────────────────────────
+LLM_API_KEY="sk-your-openai-api-key-here"
+LLM_MODEL="gpt-4o-mini"
+
+# ─── Google Calendar OAuth 2.0 ──────────────────────────────────────────────
+GOOGLE_CLIENT_ID="your-google-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+GOOGLE_REDIRECT_URI="http://localhost:5000/api/calendar/callback"
+
+# ─── Worker Settings ────────────────────────────────────────────────────────
+WORKER_CONCURRENCY=5
+```
+
+---
+
+## 🗄️ Database Schema (Prisma)
+
+The PostgreSQL database consists of 11 relational models with enforced constraints:
+
+- **`User`**: System identity (`id`, `email`, `passwordHash`, `name`, `role` [`PATIENT`, `DOCTOR`, `ADMIN`], `isActive`).
+- **`DoctorProfile`**: Specialization, qualifications, experience, slot duration (15/20/30/45/60 min), consultation fee.
+- **`WorkingHours`**: Doctor weekly schedule (`dayOfWeek` [0–6], `startTime`, `endTime`, `isActive`).
+- **`DoctorLeave`**: Scheduled physician leaves (`leaveDate`, `reason`, `notified`).
+- **`SlotHold`**: 5-minute atomic holds (`holdDate`, `startTime`, `endTime`, `expiresAt`, `isActive`).
+- **`Appointment`**: Visits (`patientId`, `doctorId`, `appointmentDate`, `startTime`, `endTime`, `status`, `symptoms`, `urgencyLevel`, `chiefComplaint`, `suggestedQuestions`, `postVisitNotes`, `patientFriendlySummary`, `summaryApprovedByDoctor`, `calendarEventIdPatient`, `calendarSyncStatus`).
+- **`Prescription`**: Consultation diagnosis, notes, follow-up date.
+- **`Medication`**: Active prescription courses (`name`, `dosage`, `frequency`, `durationDays`, `reminderTimes`, `isActive`).
+- **`Notification`**: Email dispatch logs (`type`, `status` [`PENDING`, `SENT`, `FAILED`, `DEAD_LETTER`], `attempts`, `errorMessage`).
+- **`CalendarIntegration`**: Google OAuth tokens (`accessToken`, `refreshToken`, `tokenExpiry`, `isConnected`).
+
+---
+
+## 📡 API Documentation
+
+| Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| **Admin** | `admin@healthcare.dev` | `Admin@123` | Master telemetry, user & doctor roster management |
-| **Doctor** | `dr.smith@healthcare.dev` | `Doctor@123` | General Physician (MBBS, MD) |
-| **Doctor** | `dr.sarah@healthcare.dev` | `Doctor@123` | Cardiologist (MD, DM) |
-| **Doctor** | `dr.patel@healthcare.dev` | `Doctor@123` | Pediatrician (MBBS, MD) |
-| **Patient** | `patient1@test.com` | `Patient@123` | Alice Thompson (has past visits & prescriptions) |
-| **Patient** | `patient2@test.com` | `Patient@123` | Bob Martinez |
+| **POST** | `/api/auth/register` | Public | Register new patient account |
+| **POST** | `/api/auth/login` | Public | Authenticate user & return JWT token |
+| **GET** | `/api/auth/me` | Authenticated | Fetch current user session |
+| **GET** | `/api/doctors` | Public | Search doctors by query or specialization |
+| **GET** | `/api/availability/slots` | Public | Generate available time slots for doctor & date |
+| **POST** | `/api/availability/hold` | Patient | Claim exclusive 5-minute slot reservation |
+| **POST** | `/api/appointments` | Patient | Confirm appointment booking with symptoms & hold ID |
+| **GET** | `/api/appointments/my` | Authenticated | List user appointments with status filter |
+| **PATCH** | `/api/appointments/:id/cancel` | Patient/Doctor | Cancel appointment with reason |
+| **POST** | `/api/appointments/:id/reschedule`| Patient | Reschedule appointment to a new slot hold |
+| **POST** | `/api/appointments/:id/complete` | Doctor | Save clinical assessment notes & diagnosis |
+| **GET** | `/api/ai/pre-visit/:id` | Doctor | Access pre-visit AI triage and urgency level |
+| **POST** | `/api/ai/post-visit/:id` | Doctor | Generate patient-friendly AI care plan from notes |
+| **POST** | `/api/ai/post-visit/:id/approve` | Doctor | Doctor Approval Gate releasing summary to patient |
+| **GET** | `/api/ai/post-visit/:id/patient` | Patient | Fetch approved post-visit care plan |
+| **POST** | `/api/medications` | Doctor | Add medication course with daily reminder schedule |
+| **GET** | `/api/medications/my` | Patient | Get patient active medications |
+| **POST** | `/api/doctors/me/leaves` | Doctor | Schedule leave date and auto-cancel conflicts |
+| **GET** | `/api/admin/dashboard` | Admin | System telemetry and queue health metrics |
 
 ---
 
-## 📂 Project Structure
+## 🧠 LLM Prompts & Clinical Guidance
 
+### 1. Pre-Visit Triage Prompt (Doctor Preparation)
 ```
-healthcare-app/
-├── backend/
-│   ├── prisma/
-│   │   ├── schema.prisma            # 11 relational models with enums
-│   │   └── seed.ts                  # Comprehensive demo seed script
-│   ├── src/
-│   │   ├── config/                  # DB, Redis, Winston Logger, Constants
-│   │   ├── controllers/             # Express route controllers
-│   │   ├── middleware/              # JWT Auth, RBAC, Rate limiting, Error handler
-│   │   ├── queues/                  # BullMQ queue initializers
-│   │   ├── routes/                  # Modular REST API endpoints
-│   │   ├── services/                # Business logic (Booking, Availability, LLM, Email, Calendar)
-│   │   ├── workers/                 # Notification, Medication, Calendar, SlotHold workers
-│   │   ├── index.ts                 # Server entry point
-│   │   └── app.ts                   # Express application setup
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/                  # Button, Input, Modal, StatusBadge, Cards, Select
-│   │   │   ├── layout/              # Navbar, Sidebar, Patient/Doctor/Admin Layouts
-│   │   │   └── common/              # DoctorCard, AppointmentCard, SlotPicker, NotificationBell
-│   │   ├── context/                 # AuthContext (JWT state & profile)
-│   │   ├── pages/
-│   │   │   ├── auth/                # Login & Registration
-│   │   │   ├── patient/             # Dashboard, Search, Multi-step Wizard, Visits, Meds
-│   │   │   ├── doctor/              # Overview, Appointments, Post-Visit Studio, Availability
-│   │   │   └── admin/               # System Telemetry, Users, Doctors, Leave Oversight
-│   │   ├── router/                  # React Router with RBAC guards
-│   │   └── types/                   # TypeScript interfaces
-│   └── package.json
-├── README.md
-└── SYSTEM_DESIGN.md
+Analyse these symptoms and return: urgency level (Low / Medium / High), chief complaint, and three suggested questions for the doctor.
+
+Symptoms: <symptoms>
+Duration: <duration>
+Severity: <severity>
+
+Return ONLY a valid JSON object:
+{
+  "urgencyLevel": "Low" | "Medium" | "High",
+  "chiefComplaint": "1-2 sentence description",
+  "suggestedQuestions": ["question 1", "question 2", "question 3"]
+}
 ```
+
+### 2. Post-Visit Care Plan Prompt (Patient Translation)
+```
+Convert these clinical notes into a patient-friendly summary with medication schedule and follow-up steps:
+
+Clinical Notes: <notes>
+Prescribed Medications: <medication_list>
+
+Return ONLY a valid JSON object:
+{
+  "visitSummary": "clear plain language summary for patient",
+  "keyInstructions": ["instruction 1", "instruction 2"],
+  "medicationSchedule": [
+    { "name": "med name", "dosage": "dose", "frequency": "timing", "instructions": "how to take" }
+  ],
+  "followUpSteps": ["step 1", "step 2"],
+  "warnings": ["warning or red-flag symptom"]
+}
+```
+
+---
+
+## 📅 Google Calendar Setup Guide
+
+To enable live Google Calendar synchronization:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a project (e.g. `Healthcare-App`) and navigate to **APIs & Services > Library**.
+3. Search for **Google Calendar API** and click **Enable**.
+4. Go to **APIs & Services > Credentials** → click **Create Credentials > OAuth client ID**.
+5. Application Type: **Web application**.
+6. Under **Authorized redirect URIs**, add:
+   `http://localhost:5000/api/calendar/callback`
+7. Copy your **Client ID** and **Client Secret** into `backend/.env`:
+   ```env
+   GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+   GOOGLE_CLIENT_SECRET="your-client-secret"
+   GOOGLE_REDIRECT_URI="http://localhost:5000/api/calendar/callback"
+   ```
+8. In the app, navigate to **Profile > Google Calendar** and click **Connect Google Calendar** to authorize.
+
+---
+
+## 🔑 Demo Credentials
+
+| Role | Email | Password | Features to Review |
+| :--- | :--- | :--- | :--- |
+| **Admin** | `admin@healthcare.dev` | `Admin@123` | Master telemetry dashboard, doctor onboarding, notification queue retry controls |
+| **Doctor** | `dr.smith@healthcare.dev` | `Doctor@123` | Daily queue, pre-visit AI triage, post-visit documentation with approval gate, weekly availability |
+| **Doctor** | `dr.sarah@healthcare.dev` | `Doctor@123` | Cardiologist profile, working schedule & leaves |
+| **Patient** | `patient1@test.com` | `Patient@123` | Doctor directory, 5-step booking wizard with slot-hold countdown, appointment rescheduling, active medications |
+
+---
+
+## 🌐 Deployment Guide
+
+### Frontend Deployment (Vercel)
+1. Push project to GitHub.
+2. Go to [Vercel](https://vercel.com/) and click **Add New > Project**.
+3. Select your repository and set the **Root Directory** to `frontend`.
+4. Build Command: `npm run build`, Output Directory: `dist`.
+5. Under Environment Variables, set `VITE_API_URL=https://your-backend-service.onrender.com/api`.
+6. Click **Deploy**.
+
+### Backend Deployment (Render / Railway)
+1. In [Render](https://render.com/) or [Railway](https://railway.app/), create a **PostgreSQL** database and a **Redis** instance.
+2. Create a new **Web Service** pointing to your repository with **Root Directory** `backend`.
+3. Build Command: `npm install && npx prisma generate && npm run build`.
+4. Start Command: `npm run start`.
+5. Add environment variables from `.env.example` (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `CORSORIGIN`).
+6. Create a separate **Background Worker** service on Render with start command: `npm run start:worker`.
