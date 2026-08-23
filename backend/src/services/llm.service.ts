@@ -1,13 +1,13 @@
 import OpenAI from 'openai';
 import { logger } from '../config/logger';
 
-interface PreVisitSummary {
+export interface PreVisitSummary {
   urgencyLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   chiefComplaint: string;
   suggestedQuestions: string[];
 }
 
-interface PostVisitSummary {
+export interface PostVisitSummary {
   visitSummary: string;
   keyInstructions: string[];
   medicationSchedule: Array<{
@@ -31,18 +31,22 @@ function createOpenAIClient(): OpenAI | null {
 const MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
 
 export const llmService = {
+  /**
+   * Pre-visit summary guidance:
+   * "Analyse these symptoms and return: urgency level (Low / Medium / High), chief complaint, and three suggested questions for the doctor. Symptoms: <symptoms>"
+   */
   async generatePreVisitSummary(
     symptoms: string,
-    duration: string,
-    severity: string
+    duration?: string,
+    severity?: string
   ): Promise<PreVisitSummary | null> {
     const client = createOpenAIClient();
 
-    // Fallback heuristic if no live LLM key configured
+    // Deterministic fallback if no live OpenAI key is configured
     if (!client) {
       logger.info('LLM client not configured - generating deterministic clinical triage summary');
       let urgency: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM';
-      const s = (symptoms + ' ' + severity).toLowerCase();
+      const s = (symptoms + ' ' + (severity || '')).toLowerCase();
       if (s.includes('severe') || s.includes('chest pain') || s.includes('shortness of breath') || s.includes('high fever')) {
         urgency = 'HIGH';
       } else if (s.includes('mild') || s.includes('minor') || s.includes('routine')) {
@@ -60,32 +64,29 @@ export const llmService = {
       };
     }
 
-    const prompt = `You are a clinical assistant helping a doctor prepare for a patient visit.
-Analyze these patient-reported symptoms and return ONLY a JSON object with no other text.
+    const prompt = `Analyse these symptoms and return: urgency level (Low / Medium / High), chief complaint, and three suggested questions for the doctor.
 
-IMPORTANT: This is for clinical assistance only, NOT a medical diagnosis.
-
-Return this exact JSON structure:
-{
-  "urgencyLevel": "Low" or "Medium" or "High",
-  "chiefComplaint": "brief summary of the main complaint",
-  "suggestedQuestions": ["question 1", "question 2", "question 3"]
-}
-
-Patient Symptoms: ${symptoms}
+Symptoms: ${symptoms}
 Duration: ${duration || 'Not specified'}
 Severity: ${severity || 'Not specified'}
 
-Rules:
-- urgencyLevel must be exactly "Low", "Medium", or "High"
-- chiefComplaint should be 1-2 sentences
-- suggestedQuestions must be exactly 3 relevant follow-up questions for the doctor
-- Return ONLY the JSON, no preamble or explanation`;
+Return ONLY a valid JSON object matching this schema:
+{
+  "urgencyLevel": "Low" | "Medium" | "High",
+  "chiefComplaint": "1-2 sentence description",
+  "suggestedQuestions": ["question 1", "question 2", "question 3"]
+}`;
 
     try {
       const response = await client.chat.completions.create({
         model: MODEL,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an AI clinical assistant for a medical scheduling platform. You analyze patient symptoms for doctor preparation. Return valid JSON only.',
+          },
+          { role: 'user', content: prompt },
+        ],
         temperature: 0.3,
         max_tokens: 500,
         response_format: { type: 'json_object' },
@@ -114,14 +115,18 @@ Rules:
     }
   },
 
+  /**
+   * Post-visit summary guidance:
+   * "Convert these clinical notes into a patient-friendly summary with medication schedule and follow-up steps: <notes>"
+   */
   async generatePostVisitSummary(
     notes: string,
-    medications: any[],
-    prescriptions: any[]
+    medications: any[] = [],
+    prescriptions: any[] = []
   ): Promise<PostVisitSummary | null> {
     const client = createOpenAIClient();
 
-    // Fallback structured generation if no live LLM key configured
+    // Deterministic structured care plan fallback if no live OpenAI key configured
     if (!client) {
       logger.info('LLM client not configured - generating structured patient care summary from clinical notes');
       return {
@@ -145,42 +150,36 @@ Rules:
     }
 
     const medList = medications.length > 0
-      ? medications.map(m => `${m.name} ${m.dosage} - ${m.frequency} for ${m.durationDays} days${m.instructions ? ' - ' + m.instructions : ''}`).join('\n')
-      : 'No medications prescribed';
+      ? medications.map(m => `${m.name} ${m.dosage} - ${m.frequency} for ${m.durationDays} days${m.instructions ? ' (' + m.instructions + ')' : ''}`).join('\n')
+      : 'No new medications';
 
-    const prescriptionNotes = prescriptions.length > 0
-      ? prescriptions.map(p => [p.diagnosis, p.notes].filter(Boolean).join(' | ')).join('\n')
-      : '';
-
-    const prompt = `You are helping a doctor communicate medical visit information to a patient in plain, friendly language.
-Convert these clinical notes into a patient-friendly summary. Return ONLY a JSON object.
+    const prompt = `Convert these clinical notes into a patient-friendly summary with medication schedule and follow-up steps:
 
 Clinical Notes: ${notes}
-${prescriptionNotes ? `Diagnosis/Assessment: ${prescriptionNotes}` : ''}
 Prescribed Medications:
 ${medList}
 
-Return this exact JSON structure:
+Return ONLY a valid JSON object matching this schema:
 {
-  "visitSummary": "2-3 sentence plain-language summary of the visit",
-  "keyInstructions": ["instruction 1", "instruction 2", "instruction 3"],
-  "medicationSchedule": [{"name": "med name", "dosage": "dosage", "frequency": "frequency", "instructions": "how to take it"}],
+  "visitSummary": "clear 2-3 sentence plain language explanation for patient",
+  "keyInstructions": ["instruction 1", "instruction 2"],
+  "medicationSchedule": [
+    { "name": "med name", "dosage": "dose", "frequency": "timing", "instructions": "how to take" }
+  ],
   "followUpSteps": ["step 1", "step 2"],
-  "warnings": ["warning 1"]
-}
-
-Rules:
-- Use simple, patient-friendly language (no medical jargon)
-- visitSummary should be reassuring and clear
-- Include at least 2 keyInstructions
-- medicationSchedule should match the prescribed medications
-- warnings should include important precautions or red flag symptoms to watch for
-- Return ONLY valid JSON`;
+  "warnings": ["warning or red-flag symptom"]
+}`;
 
     try {
       const response = await client.chat.completions.create({
         model: MODEL,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an AI assistant that translates clinical notes into empathetic, easily readable instructions for patients. Return valid JSON only.',
+          },
+          { role: 'user', content: prompt },
+        ],
         temperature: 0.4,
         max_tokens: 800,
         response_format: { type: 'json_object' },
