@@ -1,6 +1,7 @@
 # Healthcare Appointment & Follow-up Manager
 
-> 🌐 **Live Hosted Application**: [https://healthcare-appointment-manager-lac.vercel.app](https://healthcare-appointment-manager-lac.vercel.app)
+> 🌐 **Live Frontend (Vercel)**: [https://healthcare-appointment-manager-lac.vercel.app](https://healthcare-appointment-manager-lac.vercel.app)  
+> ⚙️ **Live Backend API (Render)**: [https://healthcare-backend-bm4s.onrender.com](https://healthcare-backend-bm4s.onrender.com)
 
 A full-stack, production-grade clinical scheduling and follow-up management platform. It guarantees concurrency safety via database-level unique constraints and 5-minute atomic slot holds, implements dual-stage AI clinical workflows with human-in-the-loop doctor approval gates, and manages notifications, medication reminders, and Google Calendar sync via decoupled BullMQ background worker queues.
 
