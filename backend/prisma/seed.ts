@@ -6,6 +6,13 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
+  // Clear appointment-related data first so seed is safe to run multiple times
+  await prisma.medication.deleteMany({});
+  await prisma.prescription.deleteMany({});
+  await prisma.slotHold.deleteMany({});
+  await prisma.appointment.deleteMany({});
+  console.log('🗑️  Cleared existing appointment data');
+
   const passwordHash = async (pw: string) => bcrypt.hash(pw, 10);
 
   // ─── Admin ────────────────────────────────────────────────────────────────
