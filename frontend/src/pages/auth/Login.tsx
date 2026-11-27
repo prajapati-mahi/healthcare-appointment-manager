@@ -46,8 +46,9 @@ export default function Login() {
   };
 
   const quickFill = (email: string, pass: string) => {
-    setValue('email', email);
-    setValue('password', pass);
+    setValue('email', email, { shouldValidate: true, shouldDirty: true });
+    setValue('password', pass, { shouldValidate: true, shouldDirty: true });
+    setErrorMessage(null);
   };
 
   return (
