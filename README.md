@@ -9,6 +9,7 @@ A full-stack, production-grade clinical scheduling and follow-up management plat
 ---
 
 ## 🌟 Table of Contents
+- [Application Showcase & User Flows](#-application-showcase--user-flows)
 - [Architecture & Key Features](#-architecture--key-features)
 - [Quick Start & Setup Guide](#-quick-start--setup-guide)
 - [Environment Variables (.env.example)](#-environment-variables-envexample)
@@ -18,6 +19,50 @@ A full-stack, production-grade clinical scheduling and follow-up management plat
 - [Google Calendar Setup Guide](#-google-calendar-setup-guide)
 - [Demo Credentials](#-demo-credentials)
 - [Deployment Guide](#-deployment-guide)
+
+---
+
+## 📸 Application Showcase & User Flows
+
+### 1. Landing & Authentication
+| **Landing Page** | **Multi-Role Authentication** |
+| :---: | :---: |
+| ![Landing Page](docs/screenshots/01_landing_page.png) | ![Login Portal](docs/screenshots/02_login_portal.png) |
+| *Hero showcase, service overview, and quick entrypoints* | *Role-based sign in with 1-Click demo account filling* |
+
+---
+
+### 2. Patient Portal & Booking Flow
+| **Patient Dashboard** | **Doctor Search & Slot Booking** |
+| :---: | :---: |
+| ![Patient Dashboard](docs/screenshots/03_patient_dashboard.png) | ![Doctor Search & Booking](docs/screenshots/04_doctor_search_booking.png) |
+| *Upcoming appointments, quick booking actions, and records* | *Specialization filtering and atomic 5-minute slot hold* |
+
+| **Medications & Care Instructions** |
+| :---: |
+| ![Patient Medications](docs/screenshots/05_patient_medications.png) |
+| *Active prescriptions, dosage timing, and doctor-approved instructions* |
+
+---
+
+### 3. Doctor Clinical Portal
+| **Doctor Queue & Patient Overview** | **Availability & Shift Management** |
+| :---: | :---: |
+| ![Doctor Dashboard](docs/screenshots/06_doctor_dashboard.png) | ![Doctor Availability](docs/screenshots/07_doctor_availability.png) |
+| *Patient queue with pre-visit AI triage and post-visit notes* | *Weekly working shifts, consultation duration, and leaves* |
+
+---
+
+### 4. Admin Governance & System Operations
+| **System Telemetry & Metrics** | **Doctor Directory & Onboarding** |
+| :---: | :---: |
+| ![Admin Dashboard](docs/screenshots/08_admin_dashboard.png) | ![Admin Doctors](docs/screenshots/09_admin_doctors.png) |
+| *High-level KPIs, appointment volume, and platform activity* | *Manage physician profiles, consultation fees, and credentials* |
+
+| **Doctor Leave Conflict Engine** |
+| :---: |
+| ![Admin Leave Management](docs/screenshots/10_admin_leave_conflicts.png) |
+| *Automatic conflict detection, notification queue, and auto-reschedule handling* |
 
 ---
 
